@@ -1,58 +1,156 @@
-# Vision families: Docling vs Mistral  
+```markdown
+# Vision families: Docling vs Mistral
 
-## Shared architecture patterns  
+> **Purpose:** Side-by-side, code-anchored notes you can trust during ports and packer/debug work.  
+> **TODO:** add permalinks (`#Lx-Ly`) for each reference below after opening the blobs in GitHub.
 
-- Both use a ViT-like vision backbone to convert image patches into latent tokens that feed into a language decoder.  
-- Each uses a projector/connector to map vision hidden dimension to text hidden dimension.  
-- Visual tokens are packed into the language token sequence as placeholders before being consumed by the decoder.  
-- Multi-image support is built in; they can handle multiple pages or images.  
+---
 
-## Key differences  
+## Shared architecture patterns
 
-### Preprocessing & geometry  
+- ViT-family vision encoder → projector/connector → decoder-only LLM; visual spans are **packed** with text.
+  - FMS: `foundation-model-stack/fms/models/idefics3/vision_connector_overview.md#Lx-Ly`
+  - FMS vs HF: `foundation-model-stack/fms/models/idefics3/fms_vs_transformers_overview.md#Lx-Ly`
+  - HF SmolVLM:
+    - `transformers/src/transformers/models/smolvlm/configuration_smolvlm.py#Lx-Ly`
+    - `transformers/src/transformers/models/smolvlm/modeling_smolvlm.py#Lx-Ly`
 
-Docling (SigLIP2-based) uses a fixed canvas (512×512) with patch size 16 → 32×32 grid of patches. The pixel-shuffle connector down-samples to an 8×8 grid (64 latents) before projection into the text hidden size 576. This ensures a fixed number of visual tokens per image. The design doc notes that image_size=512, patch_size=16, pixel_shuffle_factor=4 and resampler_n_latents=64 in the config.  
+- Packing: feature length must match `<image>` placeholder count.
+  - FMS packer: `foundation-model-stack/fms/models/idefics3/pack_overview.md#Lx-Ly`
+  - Multi-image/pages: `foundation-model-stack/fms/models/idefics3/pack_multi_overview.md#Lx-Ly`
 
-Pixtral (Mistral’s vision track) supports arbitrary resolutions via 2D RoPE and does not pad to a canonical square. The number of vision tokens is derived from the input image size. There is no explicit pixel-shuffle or perceiver resampler described, so token count is variable.  
+---
 
-### Token compaction strategy  
+## Where they align (ops you can count on)
 
-Docling uses a pixel-shuffle (space-to-depth) connector, inherited from Idefics-3, to improve OCR fidelity. The connector takes the 32×32 patch grid and groups pixels with factor 4 to produce 8×8 features (64 latents) for the language model.  
+### Vision backbone is ViT-family
+- **Docling**: SigLIP(2) tower, patch-16, fixed canvas.
+  - FMS: `idefics3/vision_connector_overview.md#Lx-Ly`
+  - Preproc: `idefics3/preprocessing_overview.md#Lx-Ly`
+  - HF SigLIP config: `transformers/src/transformers/models/siglip/configuration_siglip.py#Lx-Ly`
 
-Pixtral presumably uses the vision encoder directly (with 2D RoPE) and a projector; token counts are not compacted via pixel-shuffle; they remain proportional to image resolution.  
+- **Mistral (Pixtral / Small-3.1 Vision)**: ViT-like encoder → projector → Mistral decoder.
+  - Pixtral docs/card: **TODO add permalink**
 
-### Deriving visual token count  
+### Projector/Connector maps vision-hidden to text-hidden
+- **Docling**: Idefics-3 style connector with **pixel-shuffle**, then linear/MLP to text hidden.
+  - FMS: `idefics3/vision_connector_overview.md#Lx-Ly`
+  - HF SmolVLM usage: `models/smolvlm/modeling_smolvlm.py#Lx-Ly`
 
-Docling: The number of visual tokens per image equals the `resampler_n_latents` parameter (64 for SmolVLM‑Docling) derived from the HF config. The porting overview emphasises not to hard‑code `pixel_shuffle_factor` or token counts; these should be read from the config. When using other image sizes or patch sizes, compute the span length as `(img_size / patch_size / pixel_shuffle_factor)^2`.  
+- **Pixtral**: explicit encoder → projector → decoder split.
+  - Pixtral docs/card: **TODO add permalink**
 
-Pixtral: The number of tokens is not predetermined. For arbitrary size images, measure the encoder output length or use a provided field to allocate placeholders.  
+### Pack visual tokens into the language sequence
+- Both interleave visual spans with text and decode with a decoder-only LLM.
+  - FMS: `idefics3/pack_overview.md#Lx-Ly`
+  - vLLM placeholder rule: **TODO add permalink**
 
-### Placeholder semantics & generation API  
+### Multi-image / multi-page support
+- **Docling**: repeat **preprocess → encode → project → pack** per page.
+  - FMS: `idefics3/pack_multi_overview.md#Lx-Ly`
 
-Docling inherits Idefics-style requirement to provide `input_ids` on the first generation call because not all frameworks support `inputs_embeds` for multimodal models. Pack placeholders equal to the number of vision tokens (resampler_n_latents) into the input sequence.  
+- **Mistral**: long context + multi-image.
+  - Pixtral docs/card: **TODO add permalink**
 
-Pixtral uses a dedicated vision encoder and Mistral decoder; if using frameworks like vLLM, the rule is to pack placeholder tokens equal to the encoder output length. Since vLLM’s docs emphasise this generic contract, the packer should check that #images matches #placeholders.  
+---
 
-### Declared internals  
+## Where they diverge (and why it matters)
 
-Docling uses a SigLIP2-base-patch16-512 vision tower with pixel-shuffle connector; config values include `vision_hidden=768`, `text_hidden=576`, `pixel_shuffle_factor=4` and `resampler_n_latents=64`. These correspond to Granite-Docling-258M or SmolVLM weights.  
+### Preprocessing & geometry
+- **Docling (SigLIP2)**: fixed 512 canvas, patch-16 → 32×32 grid; SigLIP mean/std.
+  - FMS: `idefics3/preprocessing_overview.md#Lx-Ly`, `idefics3/vision_connector_overview.md#Lx-Ly`
+  - HF image processor: `models/smolvlm/image_processing_smolvlm.py#Lx-Ly`
 
-Mistral’s Small‑3.1 24B family provides long context (128k) and multi-image support but does not publicly specify patch size or compactor. It is thus considered an opaque or black-box vision module; treat details as unknown.  
+- **Pixtral**: arbitrary resolution/aspect via **2D RoPE**; token count varies with input size.
+  - Pixtral docs/card: **TODO add permalink**
 
-## Practical checklist  
+### Token compaction strategy (resampler vs pixel-shuffle vs none)
+- **Docling / Idefics-3**: **pixel-shuffle (space-to-depth)** replaces Perceiver resampler.  
+  512/16 (32×32) with factor 4 → 8×8 = **64** tokens.
+  - FMS: `idefics3/vision_connector_overview.md#Lx-Ly` (look for `pixel_shuffle_factor=4`, `resampler_n_latents=64`)
+  - HF SmolVLM config: `models/smolvlm/configuration_smolvlm.py#Lx-Ly`
 
-Create a table summarizing the key implementation details:  
+- **Pixtral**: encoder + 2D RoPE + projector; **variable** token count; no pixel-shuffle noted publicly.
+  - Pixtral docs/card: **TODO add permalink**
 
-| Aspect | Docling (e.g., SigLIP2/Granite‑Docling) | Mistral (Pixtral/Small‑3.1) |  
-| --- | --- | --- |  
-| Input canvas policy | Fixed 512×512 square; patch size 16; normalization using SigLIP mean/std | Arbitrary resolution via 2D RoPE (no resizing/padding) |  
-| Patch geometry & initial tokens | 32×32 grid of patches (1024 tokens) | Dependent on image size; unspecified patch size |  
-| Compaction path | Pixel-shuffle (space-to-depth) with factor 4 to yield 8×8 = 64 latents | No public compactor; token count derived from image resolution |  
-| Vision → Text projection | Linear/MLP projection from vision_hidden=768 to text_hidden=576; config-driven | Projector maps vision hidden dims to Mistral hidden; size unspecified |  
-| Visual token count (T_img) | Derived from config `resampler_n_latents` (64 for SmolVLM/Docling) | Derived from encoder output length; variable |  
-| Placeholder packing | Insert placeholders equal to T_img before text tokens; require `input_ids` on first generation | Pack placeholders equal to encoder output length; frameworks like vLLM follow generic contract |  
-| Multi-image support | Yes; per-page encode→project→pack | Yes; supports many images and long context |  
+### How many visual tokens per image (and where to read it)
+- **Docling**: often **64** for SigLIP2 512/16 + shuffle 4.  
+  **Do not hard-code**; read from config or produced shapes.
+  - FMS porting: `idefics3/porting_overview.md#Lx-Ly`
+  - HF config fields: `models/smolvlm/configuration_smolvlm.py#Lx-Ly`
 
-## Summary  
+- **Pixtral**: no universal span; measure encoder output or use provided field.
+  - Pixtral docs/card: **TODO add permalink**
 
-Docling and Mistral's vision-language models share the high-level pattern of a vision encoder feeding a projection layer and then a decoder-only language model. They differ mainly in how they handle image preprocessing and the compaction of visual tokens. Docling's SigLIP2 tower expects a fixed 512×512 canvas and uses a pixel-shuffle connector that deterministically produces 64 latent tokens per image, whereas Pixtral supports arbitrary image sizes and has a flexible number of visual tokens. When integrating these models into systems or building connectors, avoid hard coding token counts or placeholder positions; instead read the configuration (e.g., `resampler_n_latents`, `pixel_shuffle_factor`) or measure encoder outputs to derive the appropriate number of placeholders.
+### Placeholders & generation entry points
+- **Idefics/SmolVLM-style**: may require `input_ids` with `<image>` placeholders on first `generate`; if multimodal `inputs_embeds` unsupported, fall back to `input_ids`.
+  - FMS: `idefics3/pack_overview.md#Lx-Ly`
+  - HF SmolVLM: `models/smolvlm/modeling_smolvlm.py#Lx-Ly` (search `generate`, `inputs_embeds`, `input_ids`, `image_token_id`)
+
+- **vLLM contract**: `#placeholders == feature length`; validate `#images == #placeholders`.
+  - vLLM docs: **TODO add permalink**
+
+---
+
+## Per-model checklist
+
+- **Inputs / preprocessing**  
+  Docling: fixed 512; SigLIP mean/std.  
+  Refs: `idefics3/preprocessing_overview.md#Lx-Ly`  
+  Pixtral: arbitrary res; **TODO add permalink**
+
+- **Patch geometry**  
+  Docling: 512/16 → 32×32 grid.  
+  Ref: `idefics3/vision_connector_overview.md#Lx-Ly`
+
+- **Compaction path**  
+  Docling: pixel-shuffle projector (OCR-friendly).  
+  Ref: `idefics3/vision_connector_overview.md#Lx-Ly`
+
+- **Projection**  
+  Vision hidden → text hidden (Docling often 576).  
+  Ref: `idefics3/vision_connector_overview.md#Lx-Ly`
+
+- **Packing semantics**  
+  Placeholders match `T_img`; derive from encoder output.  
+  Ref: `idefics3/pack_overview.md#Lx-Ly`
+
+- **Generation**  
+  Check `inputs_embeds` path; fallback to `input_ids`.  
+  Refs: `idefics3/pack_overview.md#Lx-Ly`, `models/smolvlm/modeling_smolvlm.py#Lx-Ly`
+
+---
+
+## References (TODO: add permalinks + line ranges)
+
+### This repo (FMS design docs)
+- Porting overview:  
+  `https://github.com/toddllm/smolvlm-fms-design-docs/blob/main/foundation-model-stack/fms/models/idefics3/porting_overview.md#Lx-Ly`
+- Vision connector geometry:  
+  `https://github.com/toddllm/smolvlm-fms-design-docs/blob/main/foundation-model-stack/fms/models/idefics3/vision_connector_overview.md#Lx-Ly`
+- Packing semantics:  
+  `https://github.com/toddllm/smolvlm-fms-design-docs/blob/main/foundation-model-stack/fms/models/idefics3/pack_overview.md#Lx-Ly`
+- Multi-image / multi-page packing:  
+  `https://github.com/toddllm/smolvlm-fms-design-docs/blob/main/foundation-model-stack/fms/models/idefics3/pack_multi_overview.md#Lx-Ly`
+- Preprocessing policy:  
+  `https://github.com/toddllm/smolvlm-fms-design-docs/blob/main/foundation-model-stack/fms/models/idefics3/preprocessing_overview.md#Lx-Ly`
+- HF adapter / mapping:  
+  `https://github.com/toddllm/smolvlm-fms-design-docs/blob/main/foundation-model-stack/fms/models/idefics3/hf_adapter_overview.md#Lx-Ly`  
+  `https://github.com/toddllm/smolvlm-fms-design-docs/blob/main/foundation-model-stack/fms/models/idefics3/fms_vs_transformers_overview.md#Lx-Ly`
+
+### Upstream (HF / Mistral / vLLM)
+- HF SmolVLM config:  
+  `https://github.com/huggingface/transformers/blob/main/src/transformers/models/smolvlm/configuration_smolvlm.py#Lx-Ly`
+- HF SmolVLM modeling:  
+  `https://github.com/huggingface/transformers/blob/main/src/transformers/models/smolvlm/modeling_smolvlm.py#Lx-Ly`
+- HF SmolVLM image processor:  
+  `https://github.com/huggingface/transformers/blob/main/src/transformers/models/smolvlm/image_processing_smolvlm.py#Lx-Ly`
+- HF Idefics-3 (connector lineage):  
+  `https://github.com/huggingface/transformers/tree/main/src/transformers/models/idefics3`
+- HF SigLIP:  
+  `https://github.com/huggingface/transformers/tree/main/src/transformers/models/siglip`
+- Mistral Pixtral / Small-3.1 Vision:  
+  **TODO add model card / docs permalink**
+- vLLM multimodal placeholder contract:  
+  **TODO add docs permalink**
+```
