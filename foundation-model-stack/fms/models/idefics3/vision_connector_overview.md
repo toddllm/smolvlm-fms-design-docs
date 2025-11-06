@@ -5,7 +5,7 @@
 - **HF:** Hugging Face provides the official SigLIP model under `src/transformers/models/siglip` (see `configuration_siglip.py` and `modeling_siglip.py`). These files define the same vision configuration and modeling logic used in FMS.
 
 ### LlavaNext vision tower (FMS)
-- FMS also implements a vision tower for the **LlavaNext** model. In [`llava_next.py#L10-L60`](https://github.com/foundation-model-stack/foundation-model-stack/blob/main/fms/models/llava_next.py#L10-L60), the `LlavaNextConfig` constructs a `SiglipVisionConfig` with `hidden_size=1152`, `image_size=384`, and `patch_size=14`, and couples it with a Granite text backbone. This produces more patches per image (since 384/14≈27 patches per side) and uses a multimodal projector to align vision features with the Granite text hidden size.
+- FMS also implements a vision tower for the **LlavaNext** model. In [`llava_next.py#L88-L102)`]([https://github.com/foundation-model-stack/foundation-model-stack/blob/main/fms/models/llava_next.py#L10-L60](https://github.com/foundation-model-stack/foundation-model-stack/blob/c9bc7ee5fc524a31505960d63bd899dd0779feb8/fms/models/llava_next.py#L88-L102)), the `LlavaNextConfig` constructs a `SiglipVisionConfig` with `hidden_size=1152`, `image_size=384`, and `patch_size=14`, and couples it with a Granite text backbone. This produces more patches per image (since 384/14≈27 patches per side) and uses a multimodal projector to align vision features with the Granite text hidden size.
 - Hugging Face does not currently expose a LlavaNext model. However, the LlavaNext vision tower shares the same SigLIP encoder core with different dimensions, so you can refer to the FMS file and the HF SigLIP modules for additional context.
 
 ### Connector
