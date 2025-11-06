@@ -1,27 +1,20 @@
-# Vision Tower & Connector Overview
+- **Patch counts:** With a 512×512 input and patch size 16, the SigLIP vision tower produces a 32×32 grid of 1024 patch embeddings. When the `pixel_shuffle_factor` is 4, these 1024 patches are downsampled to an **8×8 grid** (64 latents) by the connector before being passed to the text backbone.
 
-This page introduces the two main components that turn raw image patches into embeddings that the language model can consume: the vision tower and the connector.
+### SigLIP implementation (FMS & HF)
+- **FMS:** The SigLIP vision encoder lives in `fms/models/siglip_vision.py`. The `SiglipVisionConfig` dataclass sets default parameters matching the `google/siglip-base-patch16-224` model (`hidden_size=768`, `image_size=224`, `patch_size=16`). See [`siglip_vision.py#L29-L60`](https://github.com/foundation-model-stack/foundation-model-stack/blob/main/fms/models/siglip_vision.py#L29-L60) for the full class definition. The `SiglipVisionEmbeddings` module produces patch embeddings of shape `(B, N, 768)`.
+- **HF:** Hugging Face provides the official SigLIP model under `src/transformers/models/siglip` (see `configuration_siglip.py` and `modeling_siglip.py`). These files define the same vision configuration and modeling logic used in FMS.
 
-## Vision Tower (SigLIP)
+### LlavaNext vision tower (FMS)
+- FMS also implements a vision tower for the **LlavaNext** model. In [`llava_next.py#L10-L60`](https://github.com/foundation-model-stack/foundation-model-stack/blob/main/fms/models/llava_next.py#L10-L60), the `LlavaNextConfig` constructs a `SiglipVisionConfig` with `hidden_size=1152`, `image_size=384`, and `patch_size=14`, and couples it with a Granite text backbone. This produces more patches per image (since 384/14≈27 patches per side) and uses a multimodal projector to align vision features with the Granite text hidden size.
+- Hugging Face does not currently expose a LlavaNext model. However, the LlavaNext vision tower shares the same SigLIP encoder core with different dimensions, so you can refer to the FMS file and the HF SigLIP modules for additional context.
 
-SmolVLM-256M uses a SigLIP-base vision encoder trained on image–text pairs. It accepts a 512×512 image and produces a grid of 32×32 patch embeddings with 768 channels. These values come from the configuration: image_size=512, patch_size=16 and vision_hidden=768 in the original config.
+### Connector
+The `Idefics3Connector` bridges the gap between the vision tower and the language model. It performs a **pixel-unshuffle (space-to-depth)** operation controlled by the `pixel_shuffle_factor` (4 for SmolVLM), reducing a 32×32 grid to 8×8. It then projects each of the 64 visual tokens into the **text hidden size** (576 for SmolVLM) via a linear layer. In multi-patch mode, these 64-token blocks are concatenated for each image patch.
 
-**Key points:**
-- The vision tower outputs a tensor of shape (B, 32×32, 768) representing 1,024 patch features.
-- When the pixel_shuffle_factor is 4, these patches will be downsampled to an 8×8 grid later by the connector.
-
-## LlavaNext Vision Tower
-
-FMS also includes a vision tower for the LlavaNext model. In llava_next.py the LlavaNextConfig sets up a SiglipVisionConfig with hidden_size=1152, image_size=384 and patch_size=14. This configuration produces a different number of patches (depending on the image resolution) and uses a multimodal projector to align vision features with a Granite text backbone. When porting LlavaNext to FMS, adjust the connector scale and hidden sizes according to these values.
-
-## Connector
-
-The Idefics3Connector bridges the gap between the vision tower and the language model. It performs a pixel-unshuffle (space-to-depth) operation controlled by the pixel_shuffle_factor and then projects the resulting features into the text hidden size.
-
-Important configuration links:
-- pixel_shuffle_factor = 4, which reduces a 32×32 grid to an 8×8 grid.
-- hidden_size of the text model = 576; the connector projects each downsampled vector into this dimension.
-
-When
-For reference, the SmolVLM-256M-Instruct configuration specifies `image_size=512`, `patch_size=16` and `vision_hidden=768` on lines 14–16 of its `config.json`: https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/blob/c2bf2d847b92fbb2abe5a5b6e8825c99efcfade2/config.json#L14-L16. It sets `pixel_shuffle_factor=4` on line 149 (same link) and the text model's `hidden_size=576` on line 44. The LlavaNext vision tower uses `hidden_size=1152`, `image_size=384` and `patch_size=14`, as defined in the FMS `llava_next.py` source: https://github.com/foundation-model-stack/foundation-model-stack/blob/main/fms/models/llava_next.py#L43-L52.
- applied to a single 512×512 patch, the connector outputs 64 visual tokens of size 576. In the next section we will explore how the multi-patch processor uses these components to handle larger images.
+### For reference
+- **SmolVLM-256M-Instruct (HF) config:** uses `image_size=512`, `patch_size=16`, `vision_hidden=768`, `text_hidden=576`, and `pixel_shuffle_factor=4`. It also sets `resampler_n_latents=64`, which matches the 8×8 downsampled grid.
+- **FMS SigLIP implementation:** see [`siglip_vision.py#L29-L60`](https://github.com/foundation-model-stack/foundation-model-stack/blob/main/fms/models/siglip_vision.py#L29-L60).
+- **FMS LlavaNext implementation:** see [`llava_next.py#L10-L60`](https://github.com/foundation-model-stack/foundation-model-stack/blob/main/fms/models/llava_next.py#L10-L60) for the vision settings (`hidden_size=1152`, `image_size=384`, `patch_size=14`).
+- **HF vision tower classes:**
+  - Idefics3 / SmolVLM: see [`configuration_idefics3.py#L24`](https://github.com/huggingface/transformers/blob/17fdaf9b7a8a172474675e1d7fe89c78385fa79b/src/transformers/models/idefics3/configuration_idefics3.py#L24) and [`modeling_idefics3.py#L50`](https://github.com/huggingface/transformers/blob/17fdaf9b7a8a172474675e1d7fe89c78385fa79b/src/transformers/models/idefics3/modeling_idefics3.py#L50).
+  - SigLIP: see [`configuration_siglip.py#L24`](https://github.com/huggingface/transformers/blob/17fdaf9b7a8a172474675e1d7fe89c78385fa79b/src/transformers/models/siglip/configuration_siglip.py#L24) and [`modeling_siglip.py#L50`](https://github.com/huggingface/transformers/blob/17fdaf9b7a8a172474675e1d7fe89c78385fa79b/src/transformers/models/siglip/modeling_siglip.py#L50).
