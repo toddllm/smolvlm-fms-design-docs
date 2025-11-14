@@ -2,7 +2,7 @@
 
 ## Why packing?  
 - In multimodal LLMs like SmolVLM, image embeddings need to be inserted into the sequence of text tokens at positions corresponding to `<image>` placeholders.  
-- The number of visual tokens per image is determined by the resampler latent count (e.g., 64) from the config ([huggingface.co](https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/blob/c2bf2d847b92fbb2abe5a5b6e8825c99efcfade2/config.json#L127#:~:text=,true)).  
+- The number of visual tokens per image is determined by the resampler latent count (e.g., 64) from the config ([SmolVLM-256-Instruct config.json](https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/blob/c2bf2d847b92fbb2abe5a5b6e8825c99efcfade2/config.json#L121))).  
 - The token id for the `<image>` placeholder is defined in the tokenizer config (for SmolVLM it is 49190) and may differ across models.  
 
 ## Packers in FMS  
@@ -16,5 +16,5 @@
 
 ## Key parameters  
 - **`image_token_id`** — the integer id representing the `<image>` placeholder (e.g., 49190 for SmolVLM).  
-- **`image_span_len`** — number of visual tokens per image (64 for SmolVLM as set by `resampler_n_latents` ([huggingface.co](https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/blob/c2bf2d847b92fbb2abe5a5b6e8825c99efcfade2/config.json#L127#:~:text=,true))).  
+- **`image_span_len`** — number of visual tokens per image (64 for SmolVLM as set by `resampler_n_latents` ([SmolVLM-256-Instruct config.json](https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/blob/c2bf2d847b92fbb2abe5a5b6e8825c99efcfade2/config.json#L121))).  
 - When adding multi-patch support, `image_span_len` may remain the same but repeated for each patch.
