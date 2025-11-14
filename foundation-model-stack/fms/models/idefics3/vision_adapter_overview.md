@@ -57,7 +57,7 @@ def forward(self, images: torch.Tensor) -> torch.Tensor:
     """
     x = self.normalize(images) if self.normalize else images
     feats = self.inner(x)
-`` # handle different output formats (dict vs tensor)
+ # handle different output formats (dict vs tensor)
     if isinstance(feats, dict):
         if "last_hidden_state" in feats:
             feats = feats["last_hidden_state"]
@@ -75,7 +75,7 @@ def forward(self, images: torch.Tensor) -> torch.Tensor:
  
 - **Checkpoint extraction** – In order to easily work with different variants of SmolVLM checkpoints, we include an `extract_vision_tower_from_checkpoint` function. It scans common attribute names (e.g. `vision_tower`, `vision`, `vision_model`, `visual`) either at the top level of the checkpoint, inside a `.model` attribute, or in a state‑dictionary, and returns the vision tower module. This helper ensures that the adapter can robustly find the vision encoder even if the checkpoint layout varies.  
  
-By defining the adapter in this way, we provide a stable and well‑documented boundary between the vision tower and the rest of the model stack. Future implementations may extend the adapter to support additional vision backbones, resizing strategies or integration with Hugging Face model APIs, but the core contract remains the same: given a batch of images, produce a tensor of patch embeddings with a known shape.  
+By defining the adapter in this way, we provide a stable and well‑documented boundary between the vision tower and the rest of the foundation model stack. Future implementations may extend the adapter to support additional vision backbones, resizing strategies or integration with Hugging Face model APIs, but the core contract remains the same: given a batch of images, produce a tensor of patch embeddings with a known shape.  
  
 ## Next steps  
  
